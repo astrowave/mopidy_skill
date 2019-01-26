@@ -53,13 +53,7 @@ class MopidySkill(MycroftSkill):
         self.genres['local'] = self.mopidy.get_local_genres()
         self.playlists['local'] = self.mopidy.get_local_playlists()
 
-        self.albums['spotify'] = {}
-        self.artists['spotify'] = {}
-        self.genres['spotify'] = {}
-        self.playlists['spotify'] = self.mopidy.get_spotify_playlists()
-
-        self.playlist = {}
-        for loc in ['local', 'gmusic', 'spotify']:
+        for loc in ['local', 'gmusic']:
             LOG.info(loc)
             self.playlist.update(self.playlists[loc])
             LOG.info(loc)
@@ -84,13 +78,6 @@ class MopidySkill(MycroftSkill):
             .require('NameKeyword')\
             .build()
         self.register_intent(intent, self.handle_play_playlist)
-
-        intent = IntentBuilder('SearchSpotifyIntent' + self.name)\
-            .require('SearchKeyword')\
-            .require('Source')\
-            .require('SpotifyKeyword')\
-            .build()
-        self.register_intent(intent, self.search_spotify)
 
     def initialize(self):
         LOG.info('initializing Mopidy skill')
@@ -165,21 +152,6 @@ class MopidySkill(MycroftSkill):
                 self.speak_dialog('currently_playing', data)
             time.sleep(6)
             self.mopidy.restore_volume()
-
-    def search_spotify(self, message):
-        LOG.info('Search Spotify Intent')
-        LOG.info(message.data)
-        name = message.data['Source']
-        LOG.info(name)
-        results = self.mopidy.find_album(name, 'spotify')
-        if len(results) > 0:
-            tracks = results[0]
-        if results is not None:
-            LOG.info(results)
-            if len(results) > 0:
-                self.play(results[0]['uri'])
-            else:
-                self.speak('couldn\'t find an album matching ' + name)
 
 
 def create_skill():
