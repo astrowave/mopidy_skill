@@ -3,7 +3,8 @@ from os.path import dirname, abspath, basename
 
 from adapt.intent import IntentBuilder
 from mycroft.messagebus.message import Message
-from mycroft import MycroftSkill
+from mycroft.skills.common_play_skill import CommonPlaySkill, CPSMatchLevel
+from mycroft.util.parse import match_one
 
 import time
 import requests
@@ -13,12 +14,20 @@ from mycroft.util.log import LOG
 from .mopidypost import Mopidy
 
 
-class MopidySkill(MycroftSkill):
+class MopidySkill(CommonPlaySkill):
     def __init__(self):
         super(MopidySkill, self).__init__('Mopidy Skill')
         self.mopidy = None
         self.volume_is_low = False
         self.connection_attempts = 0
+        self.play_time = 0
+
+        self.albums = {}
+        self.artists = {}
+        self.genres = {}
+        self.playlists = {}
+        self.radios = {}
+        self.playlist = {}
 
     def _connect(self, message):
         url = 'http://localhost:6680'
@@ -36,11 +45,6 @@ class MopidySkill(MycroftSkill):
 
         LOG.info('Connected to mopidy server')
         self.cancel_scheduled_event('MopidyConnect')
-        self.albums = {}
-        self.artists = {}
-        self.genres = {}
-        self.playlists = {}
-        self.radios = {}
 
         LOG.info('Loading content')
         self.albums['gmusic'] = self.mopidy.get_gmusic_albums()
@@ -62,22 +66,8 @@ class MopidySkill(MycroftSkill):
             self.playlist.update(self.artists[loc])
             LOG.info(loc)
             self.playlist.update(self.albums[loc])
-
-        self.register_vocabulary(self.name, 'NameKeyword')
-        for p in self.playlist.keys():
-            LOG.debug("Playlist: " + p)
-            self.register_vocabulary(p, 'PlaylistKeyword' + self.name)
-        intent = IntentBuilder('PlayPlaylistIntent' + self.name)\
-            .require('PlayKeyword')\
-            .require('PlaylistKeyword' + self.name)\
-            .build()
-        self.register_intent(intent, self.handle_play_playlist)
-        intent = IntentBuilder('PlayFromIntent' + self.name)\
-            .require('PlayKeyword')\
-            .require('PlaylistKeyword')\
-            .require('NameKeyword')\
-            .build()
-        self.register_intent(intent, self.handle_play_playlist)
+        self.playlist = {key.lower(): self.playlist[key] for key in
+                         self.playlist}
 
     def initialize(self):
         LOG.info('initializing Mopidy skill')
@@ -93,15 +83,24 @@ class MopidySkill(MycroftSkill):
         self.schedule_repeating_event(self._connect, None, 10,
                                       name='MopidyConnect')
 
+    def CPS_match_query_phrase(self, phrase):
+        print(self.playlist)
+        print("MOPIDY IS LOOKING FOR {}".format(phrase))
+        if len(self.playlist) > 0:
+            title, confidence = match_one(phrase, list(self.playlist.keys()))
+            if confidence > 0.5:
+                print("MOPIDY FOUND {}".format(title))
+                return phrase, CPSMatchLevel.EXACT, {'title': title}
+
     def play(self, tracks):
         self.mopidy.clear_list()
         self.mopidy.add_list(tracks)
         self.mopidy.play()
 
-    def handle_play_playlist(self, message):
-        p = message.data.get('PlaylistKeyword' + self.name)
-        self.stop()
+    def CPS_start(self, phrase, data):
+        p = data['title']
         self.speak("Playing " + str(p))
+        self.play_time = time.monotonic()
         time.sleep(3)
         if self.playlist[p]['type'] == 'playlist':
             tracks = self.mopidy.get_items(self.playlist[p]['uri'])
@@ -110,8 +109,8 @@ class MopidySkill(MycroftSkill):
         self.play(tracks)
 
     def stop(self, message=None):
-        LOG.info('Handling stop request')
-        if self.mopidy:
+        if time.monotonic() - self.play_time > 5 and  self.mopidy:
+            LOG.info('Handling stop request')
             self.mopidy.clear_list()
             self.mopidy.stop()
 
